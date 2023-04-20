@@ -6,23 +6,19 @@ const bcrypt = require('bcryptjs');
 const User = require('./models/user');
 const Product = require('./models/product');
 
+require('dotenv').config();
 const app = express();
 
 mongoose
-  .connect(
-    'mongodb+srv://EB0:7V1tvAxwEQ8sQe4X@creator-api.hztoda5.mongodb.net/test',
-    {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    }
-  )
+  .connect(process.env.MONGO_URL, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
   .then(() => console.log('Conexión a la base de datos establecida'))
   .catch((err) => console.log(err));
 
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
-
-const JWT_SECRET = 'mysecretkey';
 
 // Rutas públicas
 app.get('/', (req, res) => {
@@ -54,7 +50,7 @@ app.post('/login', async (req, res) => {
     return res.status(401).json({ message: 'Contraseña incorrecta' });
   }
 
-  const token = jwt.sign({ userId: user._id }, JWT_SECRET);
+  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
 
   res.json({ token });
 });
