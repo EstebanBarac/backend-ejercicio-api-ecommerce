@@ -1,115 +1,105 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const bodyParser = require('body-parser');
+const cookieParser = require('cookie-parser');
+const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
-const User = require('./models/user');
-const Product = require('./models/product');
 
 require('dotenv').config();
 const app = express();
 
-mongoose
-  .connect(process.env.MONGO_URL, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => console.log('Conexión a la base de datos establecida'))
-  .catch((err) => console.log(err));
+app.use(express.json());
+app.use(cookieParser());
+app.use(cors());
 
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-
-// Rutas públicas
-app.get('/', (req, res) => {
-  res.send('Bienvenido a mi app');
+mongoose.connect(process.env.MONGO_URL, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  useCreateIndex: true,
 });
 
-app.get('/login', (req, res) => {
-  res.send(`
-    <form method="POST" action="/login">
-      <input type="username" name="username" placeholder="Usuario" required>
-      <input type="password" name="password" placeholder="Contraseña" required>
-      <button type="submit">Iniciar sesión</button>
-    </form>
-  `);
+const productSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  description: { type: String, required: true },
+  price: { type: Number, required: true },
 });
 
-app.post('/login', async (req, res) => {
-  const { username, password } = req.body;
+const Product = mongoose.model('Product', productSchema);
 
-  const user = await User.findOne({ username });
-
-  if (!user) {
-    return res.status(404).json({ message: 'Usuario no encontrado' });
-  }
-
-  const passwordMatches = await bcrypt.compare(password, user.password);
-
-  if (!passwordMatches) {
-    return res.status(401).json({ message: 'Contraseña incorrecta' });
-  }
-
-  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);
-
-  res.json({ token });
+// Rutas de la API
+app.post('/api/login', (req, res) => {
+  // Aquí iría el código para verificar las credenciales de inicio de sesión y crear un JWT
 });
 
-// Middleware de autenticación
-const requireAuth = (req, res, next) => {
-  const token = req.headers.authorization;
-
-  if (!token) {
-    return res.status(401).json({ message: 'No estás autorizado' });
+app.get('/api/products', authenticateToken, async (req, res) => {
+  try {
+    const products = await Product.find();
+    res.json(products);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
+});
 
-  jwt.verify(token, JWT_SECRET, async (err, payload) => {
-    if (err) {
-      return res.status(401).json({ message: 'No estás autorizado' });
-    }
-
-    const { userId } = payload;
-
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(404).json({ message: 'Usuario no encontrado' });
-    }
-
-    req.user = user;
-
-    next();
-  });
-};
-
-// Rutas protegidas
-app.post('/products', requireAuth, async (req, res) => {
-  const { name, price, stock } = req.body;
-
+app.post('/api/products', authenticateToken, async (req, res) => {
   const product = new Product({
-    name,
-    price,
-    stock,
-    seller: req.user._id,
+    name: req.body.name,
+    description: req.body.description,
+    price: req.body.price,
   });
 
   try {
-    await product.save();
-
-    res.json(product);
-  } catch (error) {
-    console.log(error);
-
-    res.status(500).json({ message: 'Ha ocurrido un error' });
+    const newProduct = await product.save();
+    res.status(201).json(newProduct);
+  } catch (err) {
+    res.status(400).json({ message: err.message });
   }
 });
 
-app.get('/products', requireAuth, async (req, res) => {
-  const products = await Product.find({ seller: req.user._id });
+app.put('/api/products/:id', authenticateToken, async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
 
-  res.json(products);
+    if (product) {
+      product.name = req.body.name || product.name;
+      product.description = req.body.description || product.description;
+      product.price = req.body.price || product.price;
+
+      const updatedProduct = await product.save();
+      res.json(updatedProduct);
+    } else {
+      res.status(404).json({ message: 'Product not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
 
-app.listen(3000, () => {
-  console.log('Servidor iniciado');
+app.delete('/api/products/:id', authenticateToken, async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+
+    if (product) {
+      await product.remove();
+      res.json({ message: 'Product removed' });
+    } else {
+      res.status(404).json({ message: 'Product not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
 });
+
+// Middleware para autenticación de tokens JWT
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (token == null) return res.sendStatus(401);
+
+  jwt.verify(token, 'secret', (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+}
+
+app.listen(5000, () => console.log('Server running on port 5000'));
